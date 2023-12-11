@@ -19,7 +19,7 @@ public class GameFrame extends JFrame implements ActionListener {
     /** Símbolo que representa marca do jogador "O" no jogo da velha.*/
     public static final char CIRCLE = 'O';
 
-    /** Fluxo de saída de dados para comunicação com o servidor.*/
+    /** Fluxo de saída de dados para comunicação com o oponente.*/
     private final DataOutputStream dataOutputStream;
 
     /** Array de botões representando as células do tabuleiro do jogo da velha.*/
@@ -34,8 +34,8 @@ public class GameFrame extends JFrame implements ActionListener {
     /** Campo de entrada de texto para o chat do jogo.*/
     private JTextField chatInput;
 
-    /** Array que armazena o estado atual do jogo.*/
-    private final char[] gameStatus;
+    /** Classe que armazena o estado atual do jogo.*/
+    private final GameStatus gameStatus;
 
     /** Símbolo do jogador atual (X ou O).*/
     private final char playerId;
@@ -54,7 +54,7 @@ public class GameFrame extends JFrame implements ActionListener {
         this.playerId = playerId;
         this.myTurn = myTurn;
         this.dataOutputStream = dataOutputStream;
-        this.gameStatus = new char[9];
+        this.gameStatus = new GameStatus();
 
         // Cria o painel do jogo e o painel de chat.
         var gamePanel = createGamePanel();
@@ -84,7 +84,7 @@ public class GameFrame extends JFrame implements ActionListener {
         // Define a ação de encerrar o programa ao fechar o quadro
         mainFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-        // Adiciona um ouvinte de evento que envia uma mensagem ao servidor avisando que o jogador atual fechou e saiu do jogo.
+        // Adiciona um ouvinte de evento que envia uma mensagem ao oponente avisando que o jogador atual fechou e saiu do jogo.
         mainFrame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -224,22 +224,28 @@ public class GameFrame extends JFrame implements ActionListener {
                 });
                 button.setEnabled(false); // Desabilita o botão para evitar mais cliques
 
-                // Envia a posição da jogada ao servidor.
+                // Envia a posição da jogada ao oponente.
                 dataOutputStream.writeBytes(position + "\n");
 
-                // Atualiza o array do status do jogo com o símbolo do jogador na posição da jogada.
-                gameStatus[Integer.parseInt(position)] = playerId;
+                // Atualiza o estado do jogo com o símbolo do jogador na posição da jogada.
+                gameStatus.makeMove(Integer.parseInt(position), playerId);
 
                 // Verifica se o jogador venceu ou o jogo empatou.
-                if (checkWinner(playerId)) {
+                if (gameStatus.checkWinner(playerId)) {
                     showWinnerFrame(playerId, true); // Se venceu, exibe o diálogo de vitória.
-                } else if (checkDraw()) {
+                    dataOutputStream.writeBytes("WON" + "\n"); // Envia mensagem ao oponente notificando a vitória.
+                } else if (gameStatus.checkDraw()) {
                     showDrawFrame(); // Se empatou, exibe o diálogo de empate.
+                    dataOutputStream.writeBytes("DRAW" + "\n"); // Envia mensagem ao oponente notificando o empate.
                 }
             }
             else {
                 // Se não for a vez do jogador, impede a ação do jogador e exibe uma mensagem de aviso.
-                JOptionPane.showMessageDialog(frame,  "Aguarde o movimento do outro jogador", "Espere!", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(frame,
+                        "Aguarde o movimento do outro jogador",
+                        "Espere!",
+                        JOptionPane.WARNING_MESSAGE
+                );
             }
         }catch (Exception ex){
             System.out.println(ex.getMessage());
@@ -262,7 +268,7 @@ public class GameFrame extends JFrame implements ActionListener {
                 chatArea.append("~" + playerId + ": ");
                 chatArea.append(message + "\n");
 
-                // Envia a mensagem ao servidor com 'CHAT' concatenado no início para identificar o tipo de mensagem.
+                // Envia a mensagem ao oponente com 'CHAT' concatenado no início para identificar o tipo de mensagem.
                 dataOutputStream.writeBytes("CHAT" + message + "\n");
             }
 
@@ -292,15 +298,8 @@ public class GameFrame extends JFrame implements ActionListener {
         });
         buttons[buttonPosition].setEnabled(false); // Desabilita o botão para evitar mais cliques
 
-        // Atualiza o array do status do jogo com o símbolo do oponente na posição da jogada.
-        gameStatus[buttonPosition] = opponentId;
-
-        // Verifica se o oponente venceu ou o jogo empatou.
-        if (checkWinner(opponentId)) {
-           showWinnerFrame(opponentId, false); // Se venceu, exibe o diálogo de derrota.
-        } else if (checkDraw()) {
-            showDrawFrame(); //Se empatou, exibe o diálogo de empate.
-        }
+        // Atualiza estado do jogo com o símbolo do oponente na posição da jogada.
+        gameStatus.makeMove(buttonPosition, opponentId);
 
         // Define que é agora é a vez do jogador atual.
         myTurn = true;
@@ -327,9 +326,9 @@ public class GameFrame extends JFrame implements ActionListener {
             button.setText("");
             button.setEnabled(true);
         }
-        // Reseta o status do jogo para valores iniciais ('\0' representa vazio).
+        // Reseta o estado do jogo para valores iniciais ('\0' representa vazio).
         for (int i = 0; i < 9; i++) {
-            gameStatus[i] = '\0';
+            gameStatus.gamePosition[i] = '\0';
         }
     }
 
@@ -356,7 +355,7 @@ public class GameFrame extends JFrame implements ActionListener {
      * @param thisPlayerWon Indica se o jogador atual venceu a partida.
      * @throws IOException Exceção de E/S que pode ocorrer durante a comunicação.
      */
-    private void showWinnerFrame(char playerId, boolean thisPlayerWon) throws IOException {
+    public void showWinnerFrame(char playerId, boolean thisPlayerWon) throws IOException {
         // Exibe uma caixa de diálogo com opções para reiniciar ou encerrar o jogo.
         int option = JOptionPane.showOptionDialog(frame,
                 "O jogador " + playerId + " venceu a partida. Deseja jogar outra vez?",
@@ -370,11 +369,10 @@ public class GameFrame extends JFrame implements ActionListener {
 
         // Verifica a opção escolhida pelo jogador.
         if (option == JOptionPane.YES_OPTION) {
-            // Reinicia o jogo e envia mensagem ao servidor para reiniciar também.
-            dataOutputStream.writeBytes("RESTART" + "\n");
+            // Reinicia o estado do jogo e o tabuleiro.
             restartGame();
         } else {
-            // Encerra o programa e envia mensagem ao servidor informando que o jogador saiu.
+            // Encerra o programa e envia mensagem ao oponente informando que o jogador saiu.
             dataOutputStream.writeBytes("END" + "\n");
             frame.dispose();
         }
@@ -385,7 +383,7 @@ public class GameFrame extends JFrame implements ActionListener {
      * de reiniciar o jogo ou encerrar a partida.
      * @throws IOException Exceção de E/S que pode ocorrer durante a comunicação.
      */
-    private void showDrawFrame() throws IOException {
+    public void showDrawFrame() throws IOException {
         // Exibe uma caixa de diálogo com opções para reiniciar ou encerrar o jogo.
         int option = JOptionPane.showOptionDialog(frame,
                 "O jogo empatou. Deseja jogar outra vez?",
@@ -399,101 +397,12 @@ public class GameFrame extends JFrame implements ActionListener {
 
         // Verifica a opção escolhida pelo jogador.
         if (option == JOptionPane.YES_OPTION) {
-            // Reinicia o jogo e envia mensagem ao servidor para reiniciar também.
-            dataOutputStream.writeBytes("RESTART" + "\n");
+            // Reinicia o estado do jogo e o tabuleiro.
             restartGame();
         } else {
-            // Encerra o programa e envia mensagem ao servidor informando que o jogador saiu.
+            // Encerra o programa e envia mensagem ao oponente informando que o jogador saiu.
             dataOutputStream.writeBytes("END" + "\n");
             frame.dispose();
         }
-    }
-
-    /**
-     * Verifica se o jogador venceu o jogo, analisando as linhas, colunas e diagonais do tabuleiro.
-     * @param playerId Símbolo do jogador a ser verificado (X ou O).
-     * @return Verdadeiro se o jogador venceu, falso caso contrário.
-     */
-    private boolean checkWinner(char playerId) {
-        // Verifica se venceu pelas linhas do tabuleiro.
-        var winner = checkRows(playerId);
-        if (!winner) {
-            // Se não, verifica se venceu pelas colunas do tabuleiro.
-            winner = checkColumns(playerId);
-            if (!winner) {
-                // Se não, verifica se venceu pelas diagonais do tabuleiro.
-                winner = checkDiagonals(playerId);
-            }
-        }
-        // Retorna 'true' se tiver vencido, 'false' se não.
-        return winner;
-    }
-
-    /**
-     * Verifica se o jogador venceu por meio das linhas do tabuleiro.
-     * @param playerId Símbolo do jogador a ser verificado (X ou O).
-     * @return Verdadeiro se o jogador venceu através das linhas, falso caso contrário.
-     */
-    private boolean checkRows(char playerId) {
-        // Itera sobre as linhas do tabuleiro pelo array de status do jogo, pulando 3 posições cada loop.
-        for (int x = 0; x <= 6; x = x + 3) {
-            // Verifica se todas as posições na mesma linha contêm o símbolo do jogador.
-            if ((gameStatus[x] == playerId) && (gameStatus[x + 1] == playerId) && (gameStatus[x + 2] == playerId)) {
-                return true; // Se sim, retorna 'true'.
-            }
-        }
-        return false; // Se não tiver vencido por nenhuma linha, retorna 'false'.
-    }
-
-    /**
-     * Verifica se o jogador venceu por meio das colunas do tabuleiro.
-     * @param playerId Símbolo do jogador a ser verificado (X ou O).
-     * @return Verdadeiro se o jogador venceu através das colunas, falso caso contrário.
-     */
-    private boolean checkColumns(char playerId) {
-        // Itera sobre as colunas do tabuleiro pelo array de status do jogo, pulando 1 posição cada loop.
-        for (int x = 0; x <= 2; x++) {
-            // Verifica se todas as posições na mesma coluna contêm o símbolo do jogador.
-            if ((gameStatus[x] == playerId) && (gameStatus[x + 3] == playerId) && (gameStatus[x + 6] == playerId)) {
-                return true; // Se sim, retorna 'true'.
-            }
-        }
-        return false; // Se não tiver vencido por nenhuma coluna, retorna 'false'.
-    }
-
-    /**
-     * Verifica se o jogador venceu por meio das diagonais do tabuleiro.
-     * @param playerId Símbolo do jogador a ser verificado (X ou O).
-     * @return Verdadeiro se o jogador venceu através das diagonais, falso caso contrário.
-     */
-    private boolean checkDiagonals(char playerId) {
-        // Retorna 'true' se todas as posições na diagonal principal contêm o símbolo do jogador.
-        if ((gameStatus[0] == playerId) && (gameStatus[4] == playerId) && (gameStatus[8] == playerId)) {
-            return true;
-        // Retorna 'true' se todas as posições na diagonal secundária contêm o símbolo do jogador.
-        } else if ((gameStatus[2] == playerId) && (gameStatus[4] == playerId) && (gameStatus[6] == playerId)) {
-            return true;
-        // Retorna 'false' se não  tiver vencido por nenhuma diagonal.
-        } else {
-            return false;
-        }
-    }
-
-    /**
-     * Verifica se o jogo terminou em empate, se todas as posições do tabuleiro estão preenchidas
-     * por um símbolo e não um caracter nulo ('\0'), e não houve nenhum vencedor.
-     * @return Verdadeiro se o jogo terminou em empate, falso caso contrário.
-     */
-    private boolean checkDraw() {
-        // Conta o número de posições ocupadas no tabuleiro pelo array de status do jogo;
-        int count = 0;
-        for (char value : gameStatus) {
-            if (value != '\0') {
-                count++;
-            }
-        }
-
-        // Retorna 'true' se todas as posições estiverem ocupadas.
-        return count == 9;
     }
 }

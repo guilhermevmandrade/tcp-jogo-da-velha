@@ -54,10 +54,15 @@ public class TCPServer {
             gameFrame.opponentLeftGame();
             closeSocket(serverSocket);
         }
-        // Verifica se a mensagem indica o reinício do jogo.
-        // Se for, Reinícia o tabuleiro para iniciar um novo jogo.
-        else if (message.startsWith("RESTART")) {
-            gameFrame.restartGame();
+        // Verifica se a mensagem indica o que o oponente ganhou.
+        // Se for, notifica o jogador sobre a vitória e prepara para iniciar um novo jogo.
+        else if (message.startsWith("WON")) {
+            gameFrame.showWinnerFrame(GameFrame.CROSS, false);
+        }
+        // Verifica se a mensagem indica o que o jogo deu velha.
+        // Se for, notifica o jogador sobre o empate e prepara para iniciar um novo jogo.
+        else if (message.startsWith("DRAW")) {
+            gameFrame.showDrawFrame();
         }
         // Verifica se a mensagem é uma mensagem de chat.
         // Se for, remove o marcador "CHAT" da mensagem e exibe no chat do jogador atual com o círculo.
